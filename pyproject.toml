@@ -1,0 +1,15 @@
+[project]
+name = "qx-deerflow-workspace"
+version = "0.1.0"
+description = "QX Product Studio 嵌入 DeerFlow v2 的集成工作区（uv workspace 根）"
+requires-python = ">=3.12"
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv]
+# 与 deer-flow/backend 的锁定版本保持一致，避免 editable 安装时扰动其 venv
+constraint-dependencies = [
+    "langchain>=1.2.15,<2",
+    "langchain-core>=1.3.3,<2",
+]

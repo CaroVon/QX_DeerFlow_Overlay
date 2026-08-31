@@ -1,0 +1,36 @@
+# QX × DeerFlow 集成拓扑固化（当前验证态的声明式描述）
+#
+# 用法：与 deer-flow 官方 compose 叠加
+#   docker compose -f deer-flow/docker/docker-compose.yaml -f docker/docker-compose.qx.yml up -d
+#
+# 说明：
+# - gateway/frontend 的构建与官方一致，仅通过环境注入 qx 扩展（editable 包 + 配置）。
+# - df-nginx 用叠加配置 docker/nginx-qx.conf（官方 conf 生成：upstream 改
+#   host.docker.internal + 追加 /api/qx/ 业务路由）。
+# - QX 侧（api/worker/postgres/redis）沿用 QX_product_agent/docker-compose.yml。
+#   qx-mcp 不需要独立容器：由 gateway 以 stdio 子进程拉起（extensions_config.json）。
+
+services:
+  nginx:
+    container_name: df-nginx
+    image: nginx:1.27-alpine
+    ports:
+      - "2026:2026"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ../deer-flow:/repo:ro
+      - ./nginx-qx.conf:/etc/nginx/nginx.conf:ro
+    command: nginx -c /etc/nginx/nginx.conf -p /repo/ -g "daemon off;"
+    restart: unless-stopped
+
+  gateway:
+    environment:
+      QX_SOURCES_DIR: ${QX_SOURCES_DIR:-/home/administrator/dev/agents}
+      QX_OUTPUT_DIR: ${QX_OUTPUT_DIR:-/home/administrator/dev/agents/qx-deerflow/runtime/outputs}
+      QX_MOD_SOURCE: ${QX_MOD_SOURCE:-rainforest}
+      QX_API_BASE: http://host.docker.internal:8000
+      QX_MCP_MODE: direct
+      QX_BACKEND_DIR: /home/administrator/dev/agents/QX_product_agent/backend
+      HF_ENDPOINT: ${HF_ENDPOINT:-https://hf-mirror.com}
+      GATEWAY_CORS_ORIGINS: ${GATEWAY_CORS_ORIGINS:-http://localhost:3000,http://localhost:2026}
