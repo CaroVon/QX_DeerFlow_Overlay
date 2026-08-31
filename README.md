@@ -34,6 +34,24 @@ qx-deerflow/
 | `QX_MOD_SOURCE` | `rainforest` | MOD 数据源默认值（`mock` 可离线演示） |
 | `DEEPSEEK_API_KEY` 等 | - | 由 deer-flow `config.yaml` 以 `$VAR` 引用 |
 
+## 仓库配对（克隆指引）
+
+本仓（QX_DeerFlow_Overlay）不含 deer-flow 目录（已 gitignore）。完整环境：
+
+```bash
+git clone https://github.com/CaroVon/QX_DeerFlow_Overlay.git qx-deerflow
+cd qx-deerflow
+git clone https://github.com/CaroVon/QX_DeerFlow.git deer-flow   # 已含 QX 前端适配的快照仓
+cp config-templates/config.yaml.qx deer-flow/config.yaml
+cp config-templates/extensions_config.json deer-flow/extensions_config.json
+cp config-templates/.env.example deer-flow/.env   # 填入真实密钥
+bash scripts/install.sh
+```
+
+QX_DeerFlow 为 bytedance/deer-flow v2.0.0 的源码快照 + QX 集成改动（上游完整历史因网络限制未携带；
+如需上游同步基线，可 `git remote add upstream https://github.com/bytedance/deer-flow.git` 后按
+scripts/sync-upstream.sh 流程操作）。
+
 ## 快速开始
 
 ```bash
