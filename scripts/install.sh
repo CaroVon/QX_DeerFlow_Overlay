@@ -15,6 +15,10 @@ for pkg in qx-tools qx-core qx-mcp; do
         || uv pip install -e "$ROOT/packages/$pkg"
 done
 
+echo "==> 同步 QX 技能到 deer-flow/skills/custom（上游 gitignored，源在本仓）"
+mkdir -p "$ROOT/deer-flow/skills/custom"
+cp -r "$ROOT/skills/custom/." "$ROOT/deer-flow/skills/custom/"
+
 echo "==> 验证工具可解析（DeerFlow 的 resolve_variable 路径）"
 "$DF_BACKEND/.venv/bin/python" - <<'PY'
 from deerflow.reflection import resolve_variable

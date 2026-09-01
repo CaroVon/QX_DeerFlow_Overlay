@@ -1,6 +1,6 @@
 ---
 name: qx-image
-description: QX 生图：generate_design_image（无需任务，独立生成）→ get_design_image_status 轮询→返回图片 URL。prompt 建议包含构图/材质/色彩/风格。Use when the user invokes /qx-image or asks for this scoped capability.
+description: QX 生图：generate_design_image（无需任务，product_id 留空独立生成，URL 可直接点开）→ get_design_image_status 轮询→返回图片 URL。prompt 建议包含构图/材质/色彩/风格。Use when the user invokes /qx-image or asks for this scoped capability.
 ---
 
 # /qx-image

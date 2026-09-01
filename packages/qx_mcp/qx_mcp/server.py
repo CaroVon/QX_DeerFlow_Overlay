@@ -326,7 +326,7 @@ _DESIGN_JOBS: dict[str, dict] = {}
 
 @mcp.tool()
 def generate_design_image(prompt: str, product_id: str = "") -> str:
-    """用配置好的生图后端（MiniMax/Seedance，QX IMAGE_BACKEND）生成产品/概念图。
+    """生成产品/概念图（MiniMax/Seedance）。【无需任务：product_id 留空即可独立生成，返回的 image_url 可直接点开】。
 
     异步任务：返回 generation_id 后轮询 get_design_image_status（约 30s-6min）。
     prompt 建议由产品关键词组合而成（设计/功能/外观/人群/场景）。
@@ -399,7 +399,7 @@ def generate_design_image(prompt: str, product_id: str = "") -> str:
                     rel = os.path.relpath(files[-1], os.environ.get("QX_OUTPUT_DIR",
                                str(Path.home() / "dev" / "agents_outputs")))
                     _DESIGN_JOBS[gen_id].update(
-                        status="done", image_url=f"/api/v1/files/{rel}",
+                        status="done", image_url=f"/api/qx/files/{rel}",
                         detail=proc.stdout[-200:] or None)
                 else:
                     _DESIGN_JOBS[gen_id].update(status="failed",
