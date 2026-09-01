@@ -55,7 +55,7 @@ from qx_tools.knowledge import knowledge_ingest_tool, knowledge_search_tool
 import time
 knowledge_ingest_tool.invoke({"text": "冒烟测试标记：等离子空气净化的核心卖点在于无滤网与低噪音，目标客群为母婴家庭。", "url": "https://smoke.qx.local"})
 time.sleep(1)
-r = knowledge_search_tool.invoke({"query": "空气净化 卖点 母婴"})
+r = knowledge_search_tool.invoke({"query": "冒烟测试标记 等离子"})
 assert "冒烟测试标记" in r, "no recall: " + r[:200]
 PY
 

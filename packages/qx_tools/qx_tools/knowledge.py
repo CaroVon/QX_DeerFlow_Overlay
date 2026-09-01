@@ -40,6 +40,11 @@ def knowledge_search_tool(query: str, k: int = 5, task_id: str = "") -> str:
     from qx_core import retrieve
 
     docs = retrieve(query=query, k=k, project_id=task_id or None, scope=None)
+    # 过滤联调/冒烟灌入的测试数据（qx.local / smoke 域），避免误导检索与 agent 判断
+    docs = [
+        d for d in docs
+        if not any(t in str(getattr(d, "metadata", {}).get("url") or "") for t in ("qx.local", "smoke", "deerflow.qx"))
+    ]
     results = []
     for d in docs:
         meta = getattr(d, "metadata", None) or {}

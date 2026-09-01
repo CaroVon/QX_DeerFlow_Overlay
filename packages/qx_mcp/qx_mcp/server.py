@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from pathlib import Path
 
 import httpx
 from mcp.server.fastmcp import FastMCP
@@ -212,6 +213,61 @@ def cancel_studio_job(job_id: str) -> str:
     )
 
 
+@mcp.tool()
+def list_collected_sources(job_id: str) -> str:
+    """列出任务已采集的资料明细（资料审核门/研究中）：Tavily 来源清单（标题/URL/权重摘要）
+    + 亚马逊真实数据摘要（价格带/评分/Top ASIN/分区）。用户想"看看采集到了什么"时调用。"""
+    resp = _request("GET", f"/product/{job_id}/sources")
+    if resp.status_code != 200:
+        return json.dumps({"error": f"sources failed ({resp.status_code})"}, ensure_ascii=False)
+    d = resp.json()
+    return json.dumps(
+        {
+            "sources": [
+                {"title": s.get("title"), "url": s.get("url"),
+                 "weight": s.get("weight_label"), "summary": (s.get("content") or "")[:120]}
+                for s in (d.get("sources") or [])
+            ],
+            "amazon_summary": d.get("amazon"),
+        },
+        ensure_ascii=False, default=str,
+    )
+
+
+@mcp.tool()
+def pause_studio_job(job_id: str) -> str:
+    """暂停运行中的 QX studio 任务（当前节点完成后停住，可 resume 续跑）。"""
+    resp = _request("POST", f"/product/{job_id}/pause")
+    return json.dumps({"job_id": job_id, "http": resp.status_code, "detail": resp.text[:200]}, ensure_ascii=False)
+
+
+@mcp.tool()
+def resume_studio_job(job_id: str) -> str:
+    """续跑已暂停的 QX studio 任务。"""
+    resp = _request("POST", f"/product/{job_id}/resume")
+    return json.dumps({"job_id": job_id, "http": resp.status_code, "detail": resp.text[:200]}, ensure_ascii=False)
+
+
+@mcp.tool()
+def delete_studio_job(job_id: str) -> str:
+    """删除 QX studio 任务记录（软删：列表不再显示，产物文件保留）。"""
+    resp = _request("DELETE", f"/product/{job_id}")
+    return json.dumps({"job_id": job_id, "http": resp.status_code, "detail": resp.text[:200]}, ensure_ascii=False)
+
+
+@mcp.tool()
+def regenerate_studio_asset(product_id: str, asset: str, instruction: str = "") -> str:
+    """重新生成任务的某个资产（局部重跑，不走全流程）。
+
+    asset ∈ research / competitor_matrix / competitor_analysis / strategy / design / presentation；
+    instruction 为修改意见（可选）。competitor_matrix 重跑时会自动刷新关键词（除非用户编辑过）。
+    """
+    resp = _request("POST", f"/product/{product_id}/regenerate",
+                    json={"asset": asset, "instruction": instruction})
+    return json.dumps({"product_id": product_id, "asset": asset, "http": resp.status_code,
+                       "detail": resp.text[:300]}, ensure_ascii=False)
+
+
 def main() -> None:
     logger.info("qx-mcp starting (QX_API_BASE=%s)", QX_API_BASE)
     mcp.run()
@@ -287,20 +343,67 @@ def generate_design_image(prompt: str, product_id: str = "") -> str:
 
     def _run() -> None:
         try:
-            # 独立生成走 QX design-studio 的通用生图通道（硅基/MiniMax 脚本）
-            resp = _request("POST", f"/design-studio/{product_id or 'standalone'}/items",
-                            json={"kind": "standalone", "name": prompt[:40], "text": prompt})
-            if resp.status_code not in (200, 201):
-                _DESIGN_JOBS[gen_id].update(status="failed", detail=resp.text[:300])
-                return
-            item_id = resp.json().get("id")
-            gen_resp = _request("POST", f"/design-studio/{product_id or 'standalone'}/items/{item_id}/generate")
-            if gen_resp.status_code == 200:
-                data = gen_resp.json()
-                _DESIGN_JOBS[gen_id].update(status="done", item_id=item_id, **{
-                    k: data.get(k) for k in ("image", "image_url", "url")})
+            if product_id:
+                # 关联已有任务：走 QX design-studio 资产通道（含版本管理）
+                resp = _request("POST", f"/design-studio/{product_id}/items",
+                                json={"kind": "standalone", "name": prompt[:40], "text": prompt})
+                if resp.status_code not in (200, 201):
+                    _DESIGN_JOBS[gen_id].update(status="failed", detail=resp.text[:300])
+                    return
+                item_id = resp.json().get("id")
+                gen_resp = _request("POST", f"/design-studio/{product_id}/items/{item_id}/generate")
+                if gen_resp.status_code == 200:
+                    data = gen_resp.json()
+                    img = data.get("image") or {}
+                    _DESIGN_JOBS[gen_id].update(
+                        status="done", item_id=item_id,
+                        image_url=(img.get("url") if isinstance(img, dict) else None) or data.get("url"),
+                    )
+                else:
+                    _DESIGN_JOBS[gen_id].update(status="failed", detail=gen_resp.text[:300])
             else:
-                _DESIGN_JOBS[gen_id].update(status="failed", detail=gen_resp.text[:300])
+                # 独立生成：直调 vendor image_gen.py（无需任何任务）
+                import glob
+                import subprocess
+                import sys as _sys
+
+                script = Path(os.environ.get(
+                    "QX_IMAGE_GEN",
+                    str(Path.home() / "dev" / "agents" / "agents" / "ppt-design-agent" /
+                        "vendor" / "ppt-master" / "scripts" / "image_gen.py"),
+                ))
+                if not script.is_file():
+                    _DESIGN_JOBS[gen_id].update(status="failed",
+                                                detail=f"image_gen.py 未找到: {script}")
+                    return
+                out_dir = Path(os.environ.get("QX_OUTPUT_DIR", str(Path.home() / "dev" / "agents_outputs"))) \
+                    / "design_studio" / "standalone"
+                out_dir.mkdir(parents=True, exist_ok=True)
+                env = {**os.environ, "IMAGE_BACKEND": os.environ.get("IMAGE_BACKEND", "minimax")}
+                # 桥接 QX .env 的 MINIMAX/生图密钥
+                env_file = Path(os.environ.get("QX_BACKEND_DIR",
+                                               str(Path.home() / "dev" / "agents" / "QX_product_agent" / "backend"))) / ".env"
+                if env_file.is_file():
+                    for line in env_file.read_text(encoding="utf-8").splitlines():
+                        line = line.strip()
+                        if line and not line.startswith("#") and "=" in line:
+                            k, _, v = line.partition("=")
+                            if any(t in k for t in ("MINIMAX", "IMAGE", "SILICONFLOW")) and v.strip():
+                                env.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+                proc = subprocess.run(
+                    [_sys.executable, str(script), prompt, "-o", str(out_dir), "-f", gen_id],
+                    capture_output=True, text=True, timeout=420, env=env,
+                )
+                files = sorted(glob.glob(str(out_dir / f"{gen_id}.*")), key=os.path.getmtime)
+                if proc.returncode == 0 and files:
+                    rel = os.path.relpath(files[-1], os.environ.get("QX_OUTPUT_DIR",
+                               str(Path.home() / "dev" / "agents_outputs")))
+                    _DESIGN_JOBS[gen_id].update(
+                        status="done", image_url=f"/api/v1/files/{rel}",
+                        detail=proc.stdout[-200:] or None)
+                else:
+                    _DESIGN_JOBS[gen_id].update(status="failed",
+                                                detail=(proc.stderr or proc.stdout)[-300:])
         except Exception as exc:  # noqa: BLE001
             _DESIGN_JOBS[gen_id].update(status="failed", detail=str(exc)[:300])
 

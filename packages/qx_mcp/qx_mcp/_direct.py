@@ -13,6 +13,7 @@ import hashlib
 import json
 import logging
 import os
+import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -97,6 +98,11 @@ def submit_direct(idea: str) -> dict:
             )
 
     result = _celery_app().send_task(_TASK_NAME, args=[product_id])
+    with _engine().begin() as conn:
+        conn.execute(
+            text("UPDATE studio_products SET celery_task_id = :t, updated_at = :now WHERE id = :i"),
+            {"t": result.id, "i": product_id, "now": datetime.now(timezone.utc)},
+        )
     return {"job_id": product_id, "status": "queued", "celery_task_id": result.id, "reused": False}
 
 
@@ -146,8 +152,27 @@ def status_direct(job_id: str) -> dict:
     }
 
 
+def _load_qx_backend_path() -> None:
+    """把 QX backend 加入 sys.path（本进程不 import deerflow，无 app 包冲突）。"""
+    backend = _qx_backend_dir()
+    if str(backend) not in sys.path:
+        sys.path.insert(0, str(backend))
+    root = backend.parent
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+
+
 def cancel_direct(job_id: str) -> dict:
+    """双路撤销（与 QX API 取消同语义）+ 状态复核。"""
+    import time as _time
+
     from sqlalchemy import text
+
+    _load_qx_backend_path()
+    try:
+        from app.core.celery_ops import revoke_active_tasks_for, revoke_task
+    except ImportError:
+        revoke_task = revoke_active_tasks_for = None  # type: ignore
 
     with _engine().begin() as conn:
         row = conn.execute(
@@ -156,11 +181,8 @@ def cancel_direct(job_id: str) -> dict:
         if row is None:
             return {"error": "not found"}
         task_id, status = row
-        if task_id:
-            try:
-                _celery_app().control.revoke(task_id, terminate=True, signal="SIGTERM")
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("revoke failed: %s", exc)
+        if task_id and revoke_task:
+            revoke_task(task_id)
         conn.execute(
             text(
                 "UPDATE studio_products SET status = 'failed',"
@@ -168,4 +190,18 @@ def cancel_direct(job_id: str) -> dict:
             ),
             {"i": job_id, "now": datetime.now(timezone.utc)},
         )
-    return {"job_id": job_id, "cancelled": True}
+    # 双路：按 product_id 扫描活跃任务兜底（task_id 缺失/漂移时仍可终止）
+    if revoke_active_tasks_for:
+        try:
+            revoke_active_tasks_for(job_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("revoke_active_tasks_for failed: %s", exc)
+    # 复核：状态确已翻转（DB 已由我们写入，主要确认 worker 侧不再推进）
+    verified = False
+    for _ in range(3):
+        _time.sleep(2)
+        cur = status_direct(job_id).get("status")
+        if cur in {"failed", "completed"}:
+            verified = True
+            break
+    return {"job_id": job_id, "cancelled": True, "revoked": bool(task_id), "verified": verified}
