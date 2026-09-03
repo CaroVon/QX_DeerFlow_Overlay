@@ -350,10 +350,10 @@ def generate_design_image(prompt: str, product_id: str = "") -> str:
                 if resp.status_code not in (200, 201):
                     _DESIGN_JOBS[gen_id].update(status="failed", detail=resp.text[:300])
                     return
-                item_id = resp.json().get("id")
+                item_id = (resp.json().get("item") or {}).get("id")
                 gen_resp = _request("POST", f"/design-studio/{product_id}/items/{item_id}/generate")
                 if gen_resp.status_code == 200:
-                    data = gen_resp.json()
+                    data = (gen_resp.json().get("item") or {})
                     img = data.get("image") or {}
                     _DESIGN_JOBS[gen_id].update(
                         status="done", item_id=item_id,

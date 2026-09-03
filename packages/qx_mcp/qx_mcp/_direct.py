@@ -185,8 +185,8 @@ def cancel_direct(job_id: str) -> dict:
             revoke_task(task_id)
         conn.execute(
             text(
-                "UPDATE studio_products SET status = 'failed',"
-                " error_message = '产品流水线已取消（qx-mcp direct）', updated_at = :now WHERE id = :i"
+                "UPDATE studio_products SET status = 'cancelled',"
+                " error_message = '用户取消（qx-mcp direct）', updated_at = :now WHERE id = :i"
             ),
             {"i": job_id, "now": datetime.now(timezone.utc)},
         )
@@ -201,7 +201,7 @@ def cancel_direct(job_id: str) -> dict:
     for _ in range(3):
         _time.sleep(2)
         cur = status_direct(job_id).get("status")
-        if cur in {"failed", "completed"}:
+        if cur in {"failed", "cancelled", "completed"}:
             verified = True
             break
     return {"job_id": job_id, "cancelled": True, "revoked": bool(task_id), "verified": verified}

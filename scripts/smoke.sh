@@ -25,7 +25,7 @@ curl -sf --max-time 6 "$BASE/api/qx/auth/me" -o /dev/null && ok "qx-api /api/qx/
 
 # ─── 2. 工具解析（DeerFlow resolve_variable 路径）───────────
 echo "[2/7] 工具注册"
-cd "$DF_BACKEND" && "$DF_BACKEND/.venv/bin/python" - <<'PY' && ok "4 个 qx 工具可解析" || bad "工具解析失败"
+cd "$DF_BACKEND" && "$DF_BACKEND/.venv/bin/python" - <<'PY' && ok "17 个 qx 工具可解析（研究/矩阵/知识/生图/关键词/流水线）" || bad "工具解析失败"
 from deerflow.reflection import resolve_variable
 from langchain.tools import BaseTool
 for p in (
@@ -33,9 +33,55 @@ for p in (
     "qx_tools.amazon:competitor_matrix_tool",
     "qx_tools.knowledge:knowledge_search_tool",
     "qx_tools.knowledge:knowledge_ingest_tool",
+    "qx_tools.design:generate_design_image_tool",
+    "qx_tools.design:get_design_image_status_tool",
+    "qx_tools.design:list_design_images_tool",
+    "qx_tools.keywords:save_keyword_asset_tool",
+    "qx_tools.pipeline:submit_studio_job_tool",
+    "qx_tools.pipeline:get_studio_job_status_tool",
+    "qx_tools.pipeline:approve_studio_gate_tool",
+    "qx_tools.pipeline:reject_studio_gate_tool",
+    "qx_tools.pipeline:cancel_studio_job_tool",
+    "qx_tools.pipeline:list_collected_sources_tool",
+    "qx_tools.pipeline:pause_studio_job_tool",
+    "qx_tools.pipeline:resume_studio_job_tool",
+    "qx_tools.pipeline:regenerate_studio_asset_tool",
 ):
     resolve_variable(p, BaseTool)
 PY
+
+# ─── 2b. Agent 工具边界（F1：qx-designer 不见流水线编排）─────
+echo "[2b/7] agent 工具边界"
+cd "$DF_BACKEND" && "$DF_BACKEND/.venv/bin/python" - <<'PY' 2>/dev/null && ok "qx-designer 工具边界（无 submit_studio_job，有 generate_design_image）" || bad "工具边界泄漏"
+from deerflow.tools.tools import get_available_tools
+names = [t.name for t in get_available_tools(groups=["qx-design", "file:read", "file:write"], include_mcp=False)]
+assert "submit_studio_job" not in names, names
+assert "generate_design_image" in names, names
+studio = [t.name for t in get_available_tools(groups=["web", "qx-research", "qx-matrix", "qx-knowledge", "qx-design", "qx-pipeline"], include_mcp=False)]
+assert "submit_studio_job" in studio and "save_keyword_asset" in studio, studio
+PY
+
+# ─── 2c. Rainforest key 桥接（不消耗 credits，仅验证可见性）──
+echo "[2c/7] Rainforest key 桥接"
+BR=$("$DF_BACKEND/.venv/bin/python" - <<'PY' 2>/dev/null
+import os
+os.environ.pop("RAINFOREST_API_KEY", None)
+from qx_tools._bootstrap import ensure_qx_mod
+ensure_qx_mod()
+print("yes" if os.environ.get("RAINFOREST_API_KEY") else "no")
+PY
+) && [ "$BR" = "yes" ] && ok "gateway 进程可见 RAINFOREST_API_KEY（QX .env 桥接）" || bad "RAINFOREST_API_KEY 桥接失败（真实采集将回退 mock）"
+
+# ─── 2d. 独立资产库（qx_assets 端点，bootstrap 认证）─────────
+echo "[2d/7] 独立资产库"
+AS=$("$DF_BACKEND/.venv/bin/python" - <<'PY' 2>/dev/null
+import json
+from qx_tools.design import list_design_images_tool
+r = json.loads(list_design_images_tool.invoke({"limit": 3}))
+assert "images" in r, r
+print("ok")
+PY
+) && [ "$AS" = "ok" ] && ok "资产库 /assets 链路（list_design_images）" || bad "资产库链路失败"
 
 # ─── 3. MOD 工具（mock 数据，离线）────────────────────────
 echo "[3/7] MOD 工具（mock）"
@@ -73,6 +119,8 @@ s = json.loads(server.get_studio_job_status(r["job_id"]))
 assert s.get("status") in {"queued", "running", "waiting_approval"}, s
 c = json.loads(server.cancel_studio_job(r["job_id"]))
 assert c.get("cancelled"), c
+s2 = json.loads(server.get_studio_job_status(r["job_id"]))
+assert s2.get("status") == "cancelled", f"cancel 后状态应为 cancelled，实际 {s2.get('status')}"
 print("ok")
 PY
 ) && ok "direct submit→status→cancel" || bad "direct mode: $MCP_RESULT"

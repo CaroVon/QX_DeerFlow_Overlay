@@ -63,15 +63,45 @@ def main() -> int:
             else:
                 time.sleep(10)  # 状态可能尚未落库，下轮重试
             continue
-        if status in {"completed", "failed"}:
+        if status in {"completed", "failed", "cancelled"}:
             final = s
             break
     else:
         final = _direct.status_direct(job_id)
         final["note"] = f"timeout after {timeout_min}min"
 
-    print(json.dumps({"idea": idea, "job_id": job_id, "final": final}, ensure_ascii=False, default=str))
+    summary = {"idea": idea, "job_id": job_id, "final": final, "stage_durations": _stage_durations(job_id)}
+    print(json.dumps(summary, ensure_ascii=False, default=str))
     return 0 if final and final.get("status") == "completed" else 2
+
+
+def _stage_durations(job_id: str) -> dict[str, float]:
+    """从 progress_log（JSONL 时间戳）统计各节点耗时（分钟），供性能回归对照。"""
+    from datetime import datetime
+
+    from sqlalchemy import text
+
+    durations: dict[str, float] = {}
+    started: dict[str, datetime] = {}
+    try:
+        with _direct._engine().connect() as conn:
+            row = conn.execute(
+                text("SELECT progress_log FROM studio_products WHERE id = :i"), {"i": job_id}
+            ).fetchone()
+        for line in (row[0] or "").splitlines() if row and row[0] else []:
+            try:
+                ev = json.loads(line)
+                ts = datetime.fromisoformat(ev["ts"])
+                node, st = ev.get("node"), ev.get("status")
+                if st == "running" and node not in started:
+                    started[node] = ts
+                elif st == "completed" and node in started:
+                    durations[node] = round((ts - started.pop(node)).total_seconds() / 60, 1)
+            except (ValueError, KeyError, TypeError):
+                continue
+    except Exception as exc:  # noqa: BLE001 —— 摘要失败不影响主流程
+        durations["_error"] = str(exc)[:120]
+    return durations
 
 
 if __name__ == "__main__":
