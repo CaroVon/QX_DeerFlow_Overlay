@@ -16,6 +16,19 @@ QX_API_BASE = os.environ.get("QX_API_BASE", "http://localhost:8000").rstrip("/")
 QX_API_PREFIX = f"{QX_API_BASE}/api/v1"
 
 _TOKEN: str | None = None
+# 服务间认证（R4）：与 QX 后端共享 QX_SERVICE_KEY；用户身份暂为 admin，
+# W3-4 用户贯通后由线程 owner 注入（contextvar 或按线程工具实例）。
+QX_SERVICE_KEY = os.environ.get("QX_SERVICE_KEY", "")
+QX_SERVICE_USER = os.environ.get("QX_SERVICE_USER", "admin@deerflow.qxdev.com")
+
+
+def _service_headers() -> dict[str, str]:
+    if not QX_SERVICE_KEY:
+        return {}
+    return {
+        "X-QX-Service-Key": QX_SERVICE_KEY,
+        "X-QX-User": QX_SERVICE_USER,
+    }
 
 
 def _bootstrap_token(client: httpx.Client) -> str | None:
@@ -30,12 +43,15 @@ def _bootstrap_token(client: httpx.Client) -> str | None:
 
 
 def request(method: str, path: str, **kwargs) -> httpx.Response:
-    """带单用户 bootstrap 认证的 QX API 请求（401 自动签发重放一次）。"""
+    """QX API 请求：优先服务密钥认证；未配置时回退 bootstrap token（401 自动签发重放一次）。"""
     global _TOKEN
-    headers = {"Authorization": f"Bearer {_TOKEN}"} if _TOKEN else {}
+    headers = dict(kwargs.pop("headers", {}) or {})
+    headers.update(_service_headers())
+    if not QX_SERVICE_KEY and _TOKEN:
+        headers["Authorization"] = f"Bearer {_TOKEN}"
     with httpx.Client(base_url=QX_API_PREFIX, headers=headers, timeout=60.0) as client:
         resp = client.request(method, path, **kwargs)
-        if resp.status_code == 401 and not _TOKEN:
+        if resp.status_code == 401 and not QX_SERVICE_KEY and not _TOKEN:
             _TOKEN = _bootstrap_token(client)
             if _TOKEN:
                 client.headers["Authorization"] = f"Bearer {_TOKEN}"

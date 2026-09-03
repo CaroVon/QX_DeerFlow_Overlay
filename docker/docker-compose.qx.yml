@@ -19,9 +19,16 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ../deer-flow:/repo:ro
-      - ./nginx-qx.conf:/etc/nginx/nginx.conf:ro
-    command: nginx -c /etc/nginx/nginx.conf -p /repo/ -g "daemon off;"
+      # 注意：多 compose 叠加时相对路径按首个文件目录解析，故此处用绝对路径
+      - ${QX_OVERLAY_ROOT:-/home/administrator/dev/agents/qx-deerflow}/deer-flow:/repo:ro
+      - ${QX_OVERLAY_ROOT:-/home/administrator/dev/agents/qx-deerflow}/docker/nginx-qx.conf:/etc/nginx/nginx.conf.template:ro
+    environment:
+      # 服务间认证密钥（R4）：envsubst 注入 /api/qx/ 的服务身份头
+      QX_SERVICE_KEY: ${QX_SERVICE_KEY:-}
+    # 只替换 QX_SERVICE_KEY 一个变量（nginx 内置 $http_cookie 等必须原样保留）
+    command: >
+      sh -c "envsubst '$$QX_SERVICE_KEY' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
+      && exec nginx -c /etc/nginx/nginx.conf -p /repo/ -g 'daemon off;'"
     restart: unless-stopped
 
   gateway:

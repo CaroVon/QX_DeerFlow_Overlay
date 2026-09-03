@@ -21,7 +21,9 @@ echo "════ QX × DeerFlow 冒烟测试 ════  base=$BASE"
 echo "[1/7] 服务健康"
 curl -sf --max-time 6 "$BASE/health" | grep -q healthy && ok "gateway /health" || bad "gateway /health"
 curl -sf --max-time 8 -o /dev/null "$BASE/" && ok "frontend root" || bad "frontend root"
-curl -sf --max-time 6 "$BASE/api/qx/auth/me" -o /dev/null && ok "qx-api /api/qx/auth/me（nginx 叠加路由）" || bad "qx-api /api/qx"
+# R4 认证统一：无会话访问 QX API 必须被拒（401），带 deer-flow 会话才放行
+CODE=$(curl -s --max-time 6 -o /dev/null -w '%{http_code}' "$BASE/api/qx/auth/me")
+[ "$CODE" = "401" ] && ok "qx-api 无会话被拒（auth_request 生效）" || bad "qx-api 无会话返回 $CODE（期望 401——认证未生效？）"
 
 # ─── 2. 工具解析（DeerFlow resolve_variable 路径）───────────
 echo "[2/7] 工具注册"
@@ -72,16 +74,17 @@ print("yes" if os.environ.get("RAINFOREST_API_KEY") else "no")
 PY
 ) && [ "$BR" = "yes" ] && ok "gateway 进程可见 RAINFOREST_API_KEY（QX .env 桥接）" || bad "RAINFOREST_API_KEY 桥接失败（真实采集将回退 mock）"
 
-# ─── 2d. 独立资产库（qx_assets 端点，bootstrap 认证）─────────
+# ─── 2d. 独立资产库（qx_assets 端点，服务密钥认证）──────────
 echo "[2d/7] 独立资产库"
-AS=$("$DF_BACKEND/.venv/bin/python" - <<'PY' 2>/dev/null
+DF_ENV="$ROOT/deer-flow/.env"
+AS=$(set -a && . "$DF_ENV" && set +a && "$DF_BACKEND/.venv/bin/python" - <<'PY' 2>/dev/null
 import json
 from qx_tools.design import list_design_images_tool
 r = json.loads(list_design_images_tool.invoke({"limit": 3}))
 assert "images" in r, r
 print("ok")
 PY
-) && [ "$AS" = "ok" ] && ok "资产库 /assets 链路（list_design_images）" || bad "资产库链路失败"
+) && [ "$AS" = "ok" ] && ok "资产库 /assets 链路（服务密钥认证）" || bad "资产库链路失败"
 
 # ─── 3. MOD 工具（mock 数据，离线）────────────────────────
 echo "[3/7] MOD 工具（mock）"
