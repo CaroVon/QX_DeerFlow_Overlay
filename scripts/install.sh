@@ -9,7 +9,7 @@ DF_BACKEND="$ROOT/deer-flow/backend"
 [ -x "$HOME/.local/bin/uv" ] || { echo "未找到 uv，请先安装：https://docs.astral.sh/uv/"; exit 1; }
 
 cd "$DF_BACKEND"
-for pkg in qx-tools qx-core qx-mcp; do
+for pkg in qx-tools qx-core; do
     echo "==> editable install: $pkg"
     uv pip install -e "$ROOT/packages/${pkg//-/_}" 2>/dev/null \
         || uv pip install -e "$ROOT/packages/$pkg"

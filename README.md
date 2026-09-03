@@ -104,7 +104,7 @@ cd deer-flow && make dev
 | 统一入口 | http://localhost:2026 | nginx 容器（df-nginx，端口发布 + host-gateway 桥接） |
 | 前端 | http://localhost:3000 | DeerFlow Next.js dev（.env 直连 8001） |
 | Gateway | http://localhost:8001 | deer-flow backend（uvicorn，无 reload） |
-| QX 现役栈 | http://localhost:8000 | QX FastAPI + Celery（qx-mcp 的适配后端） |
+| QX 现役栈 | http://localhost:8000 | QX FastAPI + Celery（qx_tools 声明式工具的适配后端） |
 
 已验证的 E2E 链路：
 1. agent 调 `collect_amazon_data_tool`（mock）→ 返回竞品摘要并正确汇报
@@ -168,3 +168,5 @@ bash scripts/smoke.sh                              # 7 组 11 项冒烟（含 ag
 deer-flow/backend/.venv/bin/python scripts/full_pipeline_test.py "<idea>" 100
                                                     # 真实全管线（自动过审批门，100 分钟上限）
 ```
+
+> 2026-09-04（V2-W1 R1）：qx-mcp 包已退役——全部能力由 `packages/qx_tools` 声明式工具承载（config.yaml 工具组），MCP 注册项已移除。历史 Phase 记录中的 qx-mcp 描述仅作沿革存档。

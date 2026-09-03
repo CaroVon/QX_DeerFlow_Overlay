@@ -108,25 +108,27 @@ r = knowledge_search_tool.invoke({"query": "冒烟测试标记 等离子"})
 assert "冒烟测试标记" in r, "no recall: " + r[:200]
 PY
 
-# ─── 5. qx-mcp 直连模式（submit/status/cancel）────────────
-echo "[5/7] qx-mcp 直连（Celery+PG 直交）"
-MCP_RESULT=$(QX_MCP_MODE=direct "$DF_BACKEND/.venv/bin/python" - <<'PY' 2>/dev/null
-import os, json, time
-from qx_mcp import server
+# ─── 5. 流水线工具（submit/status/cancel，服务密钥认证）─────
+echo "[5/7] 流水线工具（qx_tools.pipeline）"
+DF_ENV="$ROOT/deer-flow/.env"
+MCP_RESULT=$(set -a && . "$DF_ENV" && set +a && "$DF_BACKEND/.venv/bin/python" - <<'PY' 2>/dev/null
+import json, time
+from qx_tools.pipeline import submit_studio_job_tool, get_studio_job_status_tool, cancel_studio_job_tool
 # 唯一 idea：避免与历史取消/失败记录幂等碰撞导致任务守卫拒绝重跑
-idea = f"smoke direct-mode test {time.strftime('%Y%m%d%H%M%S')}: silicone foldable funnel kit"
-r = json.loads(server.submit_studio_job(idea))
+idea = f"smoke pipeline test {time.strftime('%Y%m%d%H%M%S')}: silicone foldable funnel kit"
+r = json.loads(submit_studio_job_tool.invoke({"idea": idea}))
 assert r.get("job_id"), r
+job_id = r["job_id"]
 time.sleep(5)
-s = json.loads(server.get_studio_job_status(r["job_id"]))
+s = json.loads(get_studio_job_status_tool.invoke({"job_id": job_id}))
 assert s.get("status") in {"queued", "running", "waiting_approval"}, s
-c = json.loads(server.cancel_studio_job(r["job_id"]))
-assert c.get("cancelled"), c
-s2 = json.loads(server.get_studio_job_status(r["job_id"]))
+c = json.loads(cancel_studio_job_tool.invoke({"job_id": job_id}))
+assert c.get("cancel_http") == 200, c
+s2 = json.loads(get_studio_job_status_tool.invoke({"job_id": job_id}))
 assert s2.get("status") == "cancelled", f"cancel 后状态应为 cancelled，实际 {s2.get('status')}"
 print("ok")
 PY
-) && ok "direct submit→status→cancel" || bad "direct mode: $MCP_RESULT"
+) && ok "pipeline submit→status→cancel（cancelled 终态）" || bad "pipeline 工具链: $MCP_RESULT"
 
 # ─── 6. Agent E2E（经 gateway API 让 agent 调用 qx 工具）────
 echo "[6/7] agent E2E（gateway 驱动）"

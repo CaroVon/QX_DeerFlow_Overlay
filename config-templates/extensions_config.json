@@ -27,21 +27,6 @@
       ],
       "env": {},
       "description": "PostgreSQL database access"
-    },
-    "qx-studio": {
-      "enabled": false,
-      "type": "stdio",
-      "command": "/home/administrator/dev/agents/qx-deerflow/deer-flow/backend/.venv/bin/python",
-      "args": [
-        "-m",
-        "qx_mcp.server"
-      ],
-      "env": {
-        "QX_API_BASE": "http://localhost:8000",
-        "QX_MCP_MODE": "direct",
-        "QX_BACKEND_DIR": "/home/administrator/dev/agents/QX_product_agent/backend"
-      },
-      "description": "QX Product Studio long-running pipeline (submit/status/cancel)"
     }
   },
   "skills": {}
