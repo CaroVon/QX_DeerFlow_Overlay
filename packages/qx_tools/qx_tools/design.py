@@ -16,21 +16,29 @@ logger = logging.getLogger(__name__)
 
 
 @tool("generate_design_image")
-def generate_design_image_tool(prompt: str, product_id: str = "") -> str:
+def generate_design_image_tool(prompt: str = "", product_id: str = "", schema_asset_id: str = "", view: str = "atlas", style_key: str = "auto") -> str:
     """生成产品/概念图（MiniMax）。无需任何任务：product_id 留空即可独立生成。
 
-    异步执行：立即返回 generation_id（约 30s-6min 完成），之后轮询
-    get_design_image_status，完成后把 image_url（可直接点开看图）给用户。
-    prompt 建议由产品关键词组合而成（设计/功能/外观/人群/场景）。
+    两条路径（同源 Prompt Forge，优先推荐 schema 路径）：
+    - schema_asset_id + view（atlas 解构图鉴/hero/ortho 三视图/detail 细节/cutaway 剖面）
+      + style_key：后端按关键词 Schema 统一组装，带预算报告，质量最稳。
+    - prompt 直发（兼容）。
+
+    异步执行：立即返回 generation_id（约 30s-6min），轮询 get_design_image_status。
 
     Args:
-        prompt: 生图提示词（产品描述+风格，中英文均可）。
-        product_id: 可选，挂载的 QX 任务 ID（图片同时进该项目设计库，含版本管理）。
+        prompt: 直发模式的生图提示词。
+        product_id: 可选，挂载的 QX 任务 ID。
+        schema_asset_id: 关键词资产 ID（save_keyword_asset 的返回值）。
+        view: 视图类型，默认 atlas（解构图鉴）。
+        style_key: 风格预设 key，默认 auto。
     """
-    resp = qxhttp.request(
-        "POST", "/assets/generate",
-        json={"prompt": prompt, "project_id": product_id or None},
-    )
+    payload: dict = {"project_id": product_id or None}
+    if schema_asset_id:
+        payload.update({"schema_asset_id": schema_asset_id, "view": view, "style_key": style_key})
+    else:
+        payload["prompt"] = prompt
+    resp = qxhttp.request("POST", "/assets/generate", json=payload)
     if resp.status_code not in (200, 201):
         return json.dumps({"error": f"generate failed ({resp.status_code})", "detail": resp.text[:300]},
                           ensure_ascii=False)
