@@ -68,6 +68,10 @@ def collect_amazon_data_tool(
 ) -> str:
     """采集亚马逊竞品数据并返回轻量市场摘要（JSON）。
 
+    【硬规则】source=rainforest（真实源，默认）调用前必须先向用户明确确认
+    credits 消耗（top_n=20 约 21 credits）并获得同意；用户未确认/拒绝时改用
+    source="mock"。绝不在未确认的情况下直接消耗真实 credits。
+
     适用场景：快速了解一个关键词/品类下的竞品格局——价格带、均价、评分、
     评论量、四区分布（premium/value/core/risk）、Top ASIN 榜。
 
@@ -117,6 +121,9 @@ def competitor_matrix_tool(
     theme_id: str = "",
 ) -> str:
     """生成完整的亚马逊竞品矩阵 MOD 分析报告（分区、指标、14 章洞察，可选图表与 PPTX）。
+
+    【硬规则】source=rainforest（真实源）调用前必须先向用户确认 credits 消耗
+    （top_n=50 约 51 credits）并获得同意；拒绝则 mock 或改用已有 data_dir 回放（0 credit）。
 
     耗时数分钟（真实源 + LLM 解读时更久）。若已有 collect_amazon_data_tool 的
     采集归档（data_dir），本工具会用 reuse 回放，不重复消耗 credits。
