@@ -154,7 +154,7 @@ if [ -n "${LOGIN:-}" ]; then
     ok "创建线程 $TID"
     curl -sf --max-time 180 -X POST "$BASE/api/threads/$TID/runs/wait" -b smoke-cookies.txt \
       -H "Origin: $BASE" -H 'Content-Type: application/json' -H "X-CSRF-Token: $CSRF" \
-      -d '{"input":{"messages":[{"role":"user","content":"调用 collect_amazon_data_tool，keyword=smoke e2e keyboard，source=mock，top_n=5，只回复 JSON 结果里的 n_products 数字。"}]}}' \
+      -d '{"input":{"messages":[{"role":"user","content":"请务必先调用 collect_amazon_data_tool 工具（keyword=smoke e2e keyboard，source=mock，top_n=5），拿到结果后再只回复 n_products 的数字。禁止不经工具直接作答。"}]}}' \
       > /tmp/smoke-agent-run.json 2>/dev/null
     python3 -c "
 import json, sys
@@ -171,6 +171,13 @@ assert any('5' in t for t in final), 'agent 未汇报结果: ' + str(final)[:200
     bad "创建线程失败"
   fi
 fi
+
+# ─── 6b. 计费链路（登录态：余额/账单可读）──────────────────
+echo "[6b/7] credits 计费链路"
+CB=$(curl -s --max-time 6 -b smoke-cookies.txt "$BASE/api/qx/credits/balance" -H "Origin: $BASE"   | python3 -c 'import json,sys; b=json.load(sys.stdin).get("balances",{}); print("ok" if set(b)>={"llm_tokens","image","rainforest"} else "bad")')
+[ "$CB" = "ok" ] && ok "credits 余额端点（三类额度）" || bad "credits 余额端点"
+CS=$(curl -s --max-time 6 -b smoke-cookies.txt "$BASE/api/qx/credits/summary?days=7" -H "Origin: $BASE" -o /dev/null -w '%{http_code}')
+[ "$CS" = "200" ] && ok "credits 汇总端点（账单）" || bad "credits 汇总（$CS）"
 
 # ─── 7. SSE 流式（事件可达）────────────────────────────────
 echo "[7/7] SSE 流式"

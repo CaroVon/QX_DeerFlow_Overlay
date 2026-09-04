@@ -16,10 +16,53 @@ QX_API_BASE = os.environ.get("QX_API_BASE", "http://localhost:8000").rstrip("/")
 QX_API_PREFIX = f"{QX_API_BASE}/api/v1"
 
 _TOKEN: str | None = None
-# 服务间认证（R4）：与 QX 后端共享 QX_SERVICE_KEY；用户身份暂为 admin，
-# W3-4 用户贯通后由线程 owner 注入（contextvar 或按线程工具实例）。
+# 服务间认证（R4）：与 QX 后端共享 QX_SERVICE_KEY；用户身份优先取当前线程 owner
+# （langgraph runnable 上下文 → gateway sqlite threads_meta），回退 QX_SERVICE_USER。
 QX_SERVICE_KEY = os.environ.get("QX_SERVICE_KEY", "")
 QX_SERVICE_USER = os.environ.get("QX_SERVICE_USER", "admin@deerflow.qxdev.com")
+DEERFLOW_DB_PATH = os.environ.get(
+    "DEERFLOW_DB_PATH",
+    "/home/administrator/dev/agents/qx-deerflow/deer-flow/backend/.deer-flow/data/deerflow.db",
+)
+
+# thread_id → owner email 进程级缓存（TTL 简化为永久——线程归属不变）
+_OWNER_CACHE: dict[str, str | None] = {}
+
+
+def _thread_owner_email() -> str | None:
+    """当前 langgraph 线程的 owner email（拿不到上下文返回 None）。"""
+    try:
+        from langchain_core.runnables import ensure_config
+
+        thread_id = (ensure_config().get("configurable") or {}).get("thread_id")
+        if not thread_id:
+            return None
+        if thread_id in _OWNER_CACHE:
+            return _OWNER_CACHE[thread_id]
+        import sqlite3
+        from pathlib import Path
+
+        db = Path(DEERFLOW_DB_PATH)
+        if not db.is_file():
+            return None
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            row = conn.execute(
+                "SELECT u.email FROM threads_meta t JOIN users u ON u.id = t.user_id "
+                "WHERE t.thread_id = ?",
+                (thread_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        email = row[0] if row else None
+        _OWNER_CACHE[thread_id] = email
+        return email
+    except Exception:  # noqa: BLE001 —— 身任传播失败回退默认服务身份
+        return None
+
+
+def _current_user() -> str:
+    return _thread_owner_email() or QX_SERVICE_USER
 
 
 def _service_headers() -> dict[str, str]:
@@ -27,7 +70,7 @@ def _service_headers() -> dict[str, str]:
         return {}
     return {
         "X-QX-Service-Key": QX_SERVICE_KEY,
-        "X-QX-User": QX_SERVICE_USER,
+        "X-QX-User": _current_user(),
     }
 
 

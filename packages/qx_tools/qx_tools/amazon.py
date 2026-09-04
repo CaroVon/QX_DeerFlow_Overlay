@@ -22,6 +22,39 @@ def _source_or_default(source: str) -> str:
     return source or os.environ.get("QX_MOD_SOURCE", "rainforest")
 
 
+def _rainforest_quota_check(estimated: int) -> str | None:
+    """真实采集前校验 rainforest 余额；不足返回友好错误（JSON 字符串），通过返回 None。"""
+    import json as _json
+
+    from . import qxhttp
+
+    resp = qxhttp.request("GET", "/credits/balance")
+    if resp.status_code != 200:
+        return None  # 计费不可用不阻断（降级放行）
+    left = (resp.json().get("balances") or {}).get("rainforest")
+    if left is None or left >= estimated:
+        return None
+    return _json.dumps(
+        {"error": f"Rainforest 采集额度不足（剩 {left}，本次约需 {estimated} credits）：请让用户联系管理员补充，或改用 source=mock 演示"},
+        ensure_ascii=False,
+    )
+
+
+def _rainforest_consume(actual: int, reason: str) -> None:
+    """真实采集后按实际 credits 入账（失败仅记日志，不阻断结果返回）。"""
+    import logging as _logging
+
+    from . import qxhttp
+
+    try:
+        qxhttp.request(
+            "POST", "/credits/consume",
+            json={"kind": "rainforest", "amount": actual, "reason": reason, "enforce": False},
+        )
+    except Exception as exc:  # noqa: BLE001
+        _logging.getLogger(__name__).warning("rainforest 计量失败: %s", exc)
+
+
 @tool
 def collect_amazon_data_tool(
     keyword: str,
@@ -50,13 +83,21 @@ def collect_amazon_data_tool(
     ensure_qx_mod()
     from amazon_matrix_mod.run_mod import collect_amazon_data
 
+    src = _source_or_default(source)
+    if src == "rainforest":
+        # 计量（W3c）：预检余额（search 1 + 每竞品 1），采集后按实际 credits 入账
+        err = _rainforest_quota_check(1 + max(1, top_n))
+        if err:
+            return err
     summary, _payload = collect_amazon_data(
         keyword=keyword,
         top_n=top_n,
         marketplace=marketplace,
-        source=_source_or_default(source),
+        source=src,
         product_id=product_id or None,
     )
+    if src == "rainforest" and summary.get("credits"):
+        _rainforest_consume(int(summary["credits"]), f"采集 {keyword}")
     return json.dumps(summary, ensure_ascii=False, default=str)
 
 
@@ -95,15 +136,24 @@ def competitor_matrix_tool(
     ensure_qx_mod()
     from amazon_matrix_mod.run_mod import run_pipeline
 
+    src = _source_or_default(source)
+    if src == "rainforest":
+        err = _rainforest_quota_check(1 + max(1, top_n))
+        if err:
+            return err
     result = run_pipeline(
         keyword=keyword,
         top_n=top_n,
         our_asin=our_asin or None,
         marketplace=marketplace,
-        source=_source_or_default(source),
+        source=src,
         product_id=product_id or None,
         skip_llm=skip_llm,
         with_visuals=with_visuals,
         theme_id=theme_id or None,
     )
+    if src == "rainforest":
+        actual = (result.get("cost_estimate") or {}).get("credits") or 0
+        if actual > 0:
+            _rainforest_consume(int(actual), f"MOD 矩阵 {keyword}")
     return json.dumps(result, ensure_ascii=False, default=str)
