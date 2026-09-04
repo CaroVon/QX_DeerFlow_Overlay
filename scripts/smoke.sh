@@ -179,6 +179,20 @@ CB=$(curl -s --max-time 6 -b smoke-cookies.txt "$BASE/api/qx/credits/balance" -H
 CS=$(curl -s --max-time 6 -b smoke-cookies.txt "$BASE/api/qx/credits/summary?days=7" -H "Origin: $BASE" -o /dev/null -w '%{http_code}')
 [ "$CS" = "200" ] && ok "credits 汇总端点（账单）" || bad "credits 汇总（$CS）"
 
+# ─── 6c. W7：会话分离/Schema v2/admin 无限额 ───────────────
+echo "[6c/7] W7 会话分离与计费旁路"
+W7TID="smoke-w7-$RANDOM$RANDOM"
+KW=$(curl -s --max-time 8 -b smoke-cookies.txt -X POST "$BASE/api/qx/assets/keywords" \
+  -H "Origin: $BASE" -H "X-CSRF-Token: $CSRF" -H 'Content-Type: application/json' \
+  -d "{\"thread_id\":\"$W7TID\",\"name\":\"smoke schema\",\"schema\":{\"layers\":[{\"key\":\"identity\",\"items\":[{\"zh\":\"测试产品\",\"en\":\"test product\",\"visualizability\":3,\"priority\":\"must\"}]}]}}")
+echo "$KW" | grep -q "schema_v2" && ok "关键词 Schema v2 落库" || bad "Schema v2 落库"
+N=$(curl -s --max-time 6 -b smoke-cookies.txt "$BASE/api/qx/assets?kind=keywords&thread_id=$W7TID" -H "Origin: $BASE" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["assets"]))')
+[ "$N" = "1" ] && ok "thread 过滤（本会话可见 $N）" || bad "thread 过滤（$N）"
+BT=$(curl -s --max-time 6 -b smoke-cookies.txt "$BASE/api/qx/product/tasks-by-threads?ids=$W7TID" -H "Origin: $BASE" | W7TID=$W7TID python3 -c 'import json,sys,os; print(json.load(sys.stdin)["tasks"].get(os.environ["W7TID"],{}).get("status","missing"))')
+[ "$BT" = "assets_only" ] && ok "by-threads 状态（assets_only）" || bad "by-threads（$BT）"
+UN=$(curl -s --max-time 6 -b smoke-cookies.txt "$BASE/api/qx/credits/balance" -H "Origin: $BASE" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("unlimited"))')
+[ "$UN" = "True" ] && ok "admin unlimited 标记" || bad "admin unlimited"
+
 # ─── 7. SSE 流式（事件可达）────────────────────────────────
 echo "[7/7] SSE 流式"
 SSE=$(curl -sN --max-time 60 -X POST "$BASE/api/threads/$TID/runs/stream" -b /tmp/smoke-cookies.txt \

@@ -65,13 +65,27 @@ def _current_user() -> str:
     return _thread_owner_email() or QX_SERVICE_USER
 
 
+def _current_thread_id() -> str | None:
+    """当前 langgraph 线程 ID（无上下文返回 None）。"""
+    try:
+        from langchain_core.runnables import ensure_config
+
+        return (ensure_config().get("configurable") or {}).get("thread_id")
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _service_headers() -> dict[str, str]:
     if not QX_SERVICE_KEY:
         return {}
-    return {
+    headers = {
         "X-QX-Service-Key": QX_SERVICE_KEY,
         "X-QX-User": _current_user(),
     }
+    tid = _current_thread_id()
+    if tid:
+        headers["X-QX-Thread"] = str(tid)[:64]
+    return headers
 
 
 def _bootstrap_token(client: httpx.Client) -> str | None:

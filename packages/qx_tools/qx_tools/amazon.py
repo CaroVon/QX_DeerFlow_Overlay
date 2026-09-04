@@ -31,7 +31,10 @@ def _rainforest_quota_check(estimated: int) -> str | None:
     resp = qxhttp.request("GET", "/credits/balance")
     if resp.status_code != 200:
         return None  # 计费不可用不阻断（降级放行）
-    left = (resp.json().get("balances") or {}).get("rainforest")
+    data = resp.json()
+    if data.get("unlimited"):
+        return None  # 管理员无限额
+    left = (data.get("balances") or {}).get("rainforest")
     if left is None or left >= estimated:
         return None
     return _json.dumps(
