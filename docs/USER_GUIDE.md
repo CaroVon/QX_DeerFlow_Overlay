@@ -1,6 +1,6 @@
 # QX Studio 使用指南与测试要点（v0.5）
 
-> 入口（cloudflare 已更新）：**https://brands-constant-internship-acm.trycloudflare.com**
+> 入口（cloudflare 已更新）：**https://logical-temporal-baltimore-latin.trycloudflare.com**
 > （本机恒定可用 http://localhost:2026；quick tunnel 域名随 cloudflared 重启漂移，以本文档最新地址为准）
 
 ## 〇、快速上手（新用户 5 分钟路径）
